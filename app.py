@@ -1,7 +1,6 @@
 import os
-import json
 import anthropic
-from flask import Flask, render_template, request, Response, stream_with_context
+from flask import Flask, render_template, request
 
 app = Flask(__name__)
 
@@ -57,32 +56,23 @@ def chat():
 
     client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
-    def generate():
-        try:
-            with client.messages.stream(
-                model="claude-opus-4-7",
-                max_tokens=2048,
-                thinking={"type": "adaptive"},
-                system=[{
-                    "type": "text",
-                    "text": SYSTEM_PROMPT,
-                    "cache_control": {"type": "ephemeral"},
-                }],
-                messages=messages,
-            ) as stream:
-                for text in stream.text_stream:
-                    yield f"data: {json.dumps({'text': text})}\n\n"
-            yield "data: [DONE]\n\n"
-        except anthropic.AuthenticationError:
-            yield f"data: {json.dumps({'error': 'Invalid API key. Check your ANTHROPIC_API_KEY.'})}\n\n"
-        except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
-
-    return Response(
-        stream_with_context(generate()),
-        mimetype="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+    try:
+        response = client.messages.create(
+            model="claude-opus-4-7",
+            max_tokens=2048,
+            system=[{
+                "type": "text",
+                "text": SYSTEM_PROMPT,
+                "cache_control": {"type": "ephemeral"},
+            }],
+            messages=messages,
+        )
+        text = next((b.text for b in response.content if b.type == "text"), "")
+        return {"text": text}
+    except anthropic.AuthenticationError:
+        return {"error": "Invalid API key."}, 401
+    except Exception as e:
+        return {"error": str(e)}, 500
 
 
 if __name__ == "__main__":
